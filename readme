@@ -1,0 +1,15 @@
+# execute time : 2025-03-26 15:27:07 : 
+python xml_parser.py -l xml_list 
+
+
+# execute time : 2025-03-26 15:27:50 : 
+ls /dlst/tmp-Revio/r*/*/pb_formats/*bc*xml | grep -vE '(unass|fail)'  > xml_list
+
+# excute git
+git init
+git remote add dragonb6874 git@github.com:dragonb6874/PacBio-Revio-Database.git
+
+
+
+git branch -r
+git pull dragonb6874 main

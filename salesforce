@@ -1,0 +1,6 @@
+#!/bin/bash
+
+source /ess/dlstibm/home/dragonb/mambaforge/etc/profile.d/conda.sh
+conda activate python3
+
+python /ess/dlstibm/home/dragonb/workspace/pipeline/PacDB/10.api.new.py $@
