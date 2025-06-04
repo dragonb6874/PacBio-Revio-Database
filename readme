@@ -8,8 +8,17 @@ ls /dlst/tmp-Revio/r*/*/pb_formats/*bc*xml | grep -vE '(unass|fail)'  > xml_list
 # excute git
 git init
 git remote add dragonb6874 git@github.com:dragonb6874/PacBio-Revio-Database.git
-
-
-
 git branch -r
 git pull dragonb6874 main
+
+# pull 안될 때 
+git config --global user.name "dragonb6874"
+git config --global user.email "dragonb6874@naver.com"
+
+# commit
+git commit -m "1st commit"
+git push dragonb6874 master
+
+# main으로 pull 안될 때
+git branch -m main
+git push -u dragonb6874 main

@@ -1,6 +1,6 @@
 #!/bin/python
 import subprocess
-import argparse
+import argparse # optparse 대신 argparse 임포트
 import sys
 import os
 import re
@@ -392,21 +392,37 @@ class DataProcessor:
         BioSampleName, RunName, ServiceId, ServiceName을 추출하고 정제합니다.
         """
         try:
+            # Sample Name : runlog demulti 시트 M 열
+            # pooling ID : runlog demulti 시트 B 열
+            # Sample ID : runlog demulti 시트 E 열
+            # run name : runlog demulti 시트 J 열
             lab_run_log = pd.read_excel(SALESFORCE_EXCEL_PATH, sheet_name="Revio Demulti")
-            lab_run_log = lab_run_log[['Sample Name', 'run name', '서비스 ID', '서비스명']]
-            lab_run_log.columns = ['BioSampleName', 'RunDetails_RunName', 'ServiceId', 'ServiceName']
-
+            lab_run_log = lab_run_log[['Sample ID', 'pooling ID', 'Sample Name', 'run name', '서비스 ID', '서비스명']]
+            lab_run_log.columns = ['Sample ID', 'RunDetails_WellSampleName_tmp', 'BioSampleName', 'RunDetails_RunName', 'ServiceId', 'ServiceName']
+            
+            # BioSampleName 양쪽 공백 제거 후 비어 있다면 Sample Name column 값으로 채움
+            lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].str.strip()
+            lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].replace('', pd.NA)
+            lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].fillna(lab_run_log['Sample ID'])
+            
+            # Sample ID 열 제거
+            #lab_run_log.drop(columns=['Sample ID'], inplace=True, errors='ignore')
+            
             # BioSampleName이 비어있는 행 제거
-            lab_run_log = lab_run_log[lab_run_log['BioSampleName'].notnull()]
-            if 'BioSampleName' in lab_run_log.columns:
-                lab_run_log = lab_run_log[lab_run_log['BioSampleName'] != '']
+            #lab_run_log = lab_run_log[lab_run_log['BioSampleName'].notnull()]
+            #if 'BioSampleName' in lab_run_log.columns:
+            #    lab_run_log = lab_run_log[lab_run_log['BioSampleName'] != '']
 
             # 병합된 셀로 인해 비어있는 RunName을 이전 값으로 채움 (forward fill)
             lab_run_log.fillna(method='ffill', inplace=True)
 
             # BioSampleName을 문자열로 변환
-            if 'BioSampleName' in lab_run_log.columns:
-                lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].astype(str)
+            lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].astype(str)
+            lab_run_log['Sample ID'] = lab_run_log['Sample ID'].astype(str)
+
+            # BioSampleName의 양쪽 공백 제거
+            lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].str.strip()
+            lab_run_log['Sample ID'] = lab_run_log['Sample ID'].str.strip()
 
             # RunDetails_RunName 열에서 공백 제거
             lab_run_log['RunDetails_RunName'] = lab_run_log['RunDetails_RunName'].str.replace(' ', '')
@@ -565,16 +581,94 @@ class ReportGenerator:
         combined_df = pd.concat(result_dfs, ignore_index=True)
         combined_df = self.data_processor.clean_dataframe(combined_df)
 
-        # 세일즈포스 데이터와 병합
+
+        # 1차 세일즈포스 데이터와 병합 ( [BioSampleName, RunDetails_RunName] 기준)
+        logger.info("1차 세일즈포스 데이터 추출 및 병합 시작...")
+        logger.info("세일즈포스 데이터에서 BioSampleName과 RunDetails_RunName 기준으로 병합 시작...")
+        # 세일즈포스 데이터 추출
         salesforce_data = self.data_processor.extract_salesforce_data()
         if not salesforce_data.empty:
             if 'RunDetails_RunName' in combined_df.columns:
-                combined_df['RunDetails_RunName'] = combined_df['RunDetails_RunName'].astype(str).str.replace(' ', '')  # 공백 제거 및 문자열 변환
+                combined_df['RunDetails_RunName'] = combined_df['RunDetails_RunName'].dropna().astype(str).str.strip()  # 공백 제거 및 문자열 변환
                 combined_df = pd.merge(combined_df, salesforce_data, on=['BioSampleName', 'RunDetails_RunName'], how='left')
             else:
                 logger.warning("RunDetails_RunName 컬럼이 combined_df에 없어 세일즈포스 데이터 병합을 건너뜁니다.")
         else:
             logger.warning("세일즈포스 데이터가 비어있어 병합을 건너뜁니다.")
+
+        # 2차 세일즈포스 데이터와 병합 ( [Sample ID, RunDetails_RunName] 기준)
+        # salesforce_data copy 후 기존 BioSampleName 컬럼 제거, Sample Id를 BioSampleName으로 변경
+        salesforce_data_tmp = salesforce_data.copy()  # 원본 데이터 보호를 위해 복사
+        salesforce_data_tmp.drop(columns=['BioSampleName'], inplace=True, errors='ignore') 
+        salesforce_data_tmp.rename(columns={'Sample ID': 'BioSampleName'}, inplace=True, errors='ignore')
+        
+        logger.info("2차 세일즈포스 데이터 추출 및 병합 시작...")
+        logger.info("세일즈포스 데이터에서 BioSampleName(엑셀에서 Sample ID열)과 RunDetails_RunName 기준으로 비어있는 ServiceId 채우기 시작...")
+        if 'ServiceId' in combined_df.columns and 'BioSampleName' in combined_df.columns:
+            # ServiceId가 비어있는 행 필터링
+            empty_serviceid_df = combined_df[combined_df['ServiceId'].isna() | (combined_df['ServiceId'] == '')]
+            if not empty_serviceid_df.empty:
+                logger.info(f"ServiceId가 비어있는 행 {len(empty_serviceid_df)}개 발견. 세일즈포스 데이터로 채우기 시작.")
+                
+                # BioSampleName, RunDetails_RunName을 기준으로 salesforce_data에서 ServiceId 채우기
+                for index, row in empty_serviceid_df.iterrows():
+                    bio_sample_name = row['BioSampleName']
+                    run_details_run_name = row.get('RunDetails_RunName', '')
+
+                    # salesforce_data에서 해당 BioSampleName과 RunDetails_RunName에 해당하는 행 찾기
+                    matching_row = salesforce_data_tmp[
+                        (salesforce_data_tmp['BioSampleName'] == bio_sample_name) &
+                        (salesforce_data_tmp['RunDetails_RunName'] == run_details_run_name)
+                    ]
+
+                    if not matching_row.empty:
+                        # ServiceId 채우기
+                        combined_df.at[index, 'ServiceId'] = matching_row['ServiceId'].values[0]
+                        combined_df.at[index, 'ServiceName'] = matching_row['ServiceName'].values[0]  # ServiceName도 채움
+                        logger.info(f"행 {index}의 ServiceId를 {matching_row['ServiceId'].values[0]}로 채움.")
+                    else:
+                        logger.warning(f"행 {index}의 BioSampleName '{bio_sample_name}'와 RunDetails_RunName '{run_details_run_name}'에 해당하는 ServiceId를 찾을 수 없음.")
+            else:
+                logger.info("ServiceId가 비어있는 행이 없습니다. 세일즈포스 데이터로 채우기를 건너뜁니다.")
+        else:
+            logger.warning("combined_df에 ServiceId 또는 BioSampleName 컬럼이 없습니다. 세일즈포스 데이터로 채우기를 건너뜁니다.")
+        
+        # 3차 세일즈포스 데이터 병합 ( [BioSampleName, RunDetails_WellSampleName_tmp] 기준)
+        # RunDetails_WellSampleName_tmp 컬럼 생성 (RunDetails_WellSampleName에서 '-Cell' 앞부분만 추출)
+        combined_df['RunDetails_WellSampleName_tmp'] = combined_df['RunDetails_WellSampleName'].str.split('-Cell').str[0]  # RunDetails_WellSampleName에서 '-Cell' 앞부분만 추출
+        
+        logger.info("3차 세일즈포스 데이터 추출 및 병합 시작...")
+        logger.info("세일즈포스 데이터에서 BioSampleName(엑셀에서 Sample ID열)과 RunDetails_WellSampleName_tmp 기준으로 비어있는 ServiceId 채우기 시작...")
+        if 'ServiceId' in combined_df.columns and 'BioSampleName' in combined_df.columns:
+            # ServiceId가 비어있는 행 필터링
+            empty_serviceid_df = combined_df[combined_df['ServiceId'].isna() | (combined_df['ServiceId'] == '')]
+
+            if not empty_serviceid_df.empty:
+                logger.info(f"ServiceId가 비어있는 행 {len(empty_serviceid_df)}개 발견. 세일즈포스 데이터로 채우기 시작.")
+                
+                # BioSampleName, 을 기준으로 salesforce_data에서 ServiceId 채우기
+                for index, row in empty_serviceid_df.iterrows():
+                    bio_sample_name = row['BioSampleName']
+                    run_details_wellsample_name = row.get('RunDetails_WellSampleName_tmp', '')
+
+                    # salesforce_data에서 해당 BioSampleName과 RunDetails_WellSampleName_tmp에 해당하는 행 찾기
+                    matching_row = salesforce_data_tmp[
+                        (salesforce_data_tmp['BioSampleName'] == bio_sample_name) &
+                        (salesforce_data_tmp['RunDetails_WellSampleName_tmp'] == run_details_wellsample_name)
+                    ]
+
+                    if not matching_row.empty:
+                        # ServiceId 채우기
+                        combined_df.at[index, 'ServiceId'] = matching_row['ServiceId'].values[0]
+                        combined_df.at[index, 'ServiceName'] = matching_row['ServiceName'].values[0]  # ServiceName도 채움
+                        logger.info(f"행 {index}의 ServiceId를 {matching_row['ServiceId'].values[0]}로 채움.")
+                    else:
+                        logger.warning(f"행 {index}의 BioSampleName '{bio_sample_name}'와 RunDetails_WellSampleName_tmp '{run_details_wellsample_name}'에 해당하는 ServiceId를 찾을 수 없음.")
+            else:
+                logger.info("ServiceId가 비어있는 행이 없습니다. 세일즈포스 데이터로 채우기를 건너뜁니다.")
+        else:
+            logger.warning("combined_df에 ServiceId 또는 BioSampleName 컬럼이 없습니다. 세일즈포스 데이터로 채우기를 건너뜁니다.")
+
 
         # BioSampleName이 비어있는 행 제거
         combined_df = combined_df[combined_df['BioSampleName'].notna()]
