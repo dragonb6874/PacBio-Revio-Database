@@ -22,3 +22,15 @@ git push dragonb6874 master
 # main으로 pull 안될 때
 git branch -m main
 git push -u dragonb6874 main
+# execute time : 2025-06-05 09:51:15 : 
+git add .
+
+
+# execute time : 2025-06-05 09:51:24 : 
+git commit -m "2nd commit"
+
+
+# execute time : 2025-06-05 09:51:34 : 
+git push dragonb6874 main
+
+
