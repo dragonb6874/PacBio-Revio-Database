@@ -669,9 +669,8 @@ class ReportGenerator:
         else:
             logger.warning("combined_df에 ServiceId 또는 BioSampleName 컬럼이 없습니다. 세일즈포스 데이터로 채우기를 건너뜁니다.")
 
-
-        logger.info("BioSampleName으로 마지막 ServiceId 채우기 시작...")
         # 마지막으로 BioSampleName을 기준으로 ServiceId 채우기
+        logger.info("BioSampleName으로 마지막 ServiceId 채우기 시작...")
         empty_serviceid_df = combined_df[combined_df['ServiceId'].isna() | (combined_df['ServiceId'] == '')]
         for index, value in enumerate(empty_serviceid_df['BioSampleName']):
             idlist = salesforce_data[salesforce_data['BioSampleName']==value]['ServiceId'].unique()
@@ -680,6 +679,13 @@ class ReportGenerator:
                 combined_df.at[empty_serviceid_df.index[index], 'ServiceName'] = salesforce_data[salesforce_data['BioSampleName']==value]['ServiceName'].values[0]
             elif len(idlist) > 1:
                 logger.warning(f"BioSampleName '{value}'에 대해 여러 개의 ServiceId가 발견되었습니다: {idlist}. ServiceId를 채우지 않습니다.")
+            else:
+                idlist = salesforce_data[salesforce_data['RunDetails_WellSampleName_tmp']==value]['ServiceId'].unique()
+                if len(idlist) == 1:
+                    combined_df.at[empty_serviceid_df.index[index], 'ServiceId'] = idlist[0]
+                    combined_df.at[empty_serviceid_df.index[index], 'ServiceName'] = salesforce_data[salesforce_data['RunDetails_WellSampleName_tmp']==value]['ServiceName'].values[0]
+                else:
+                    logger.warning(f"BioSampleName '{value}'에 대해 ServiceId를 찾을 수 없습니다. ServiceId를 채우지 않습니다.")
             
 
         # Sample ID, RunDetails_WellSampleName_tmp 열 제거
