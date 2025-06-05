@@ -669,6 +669,8 @@ class ReportGenerator:
         else:
             logger.warning("combined_df에 ServiceId 또는 BioSampleName 컬럼이 없습니다. 세일즈포스 데이터로 채우기를 건너뜁니다.")
 
+    
+        combined_df.drop(columns=['Sample ID', 'RunDetails_WellSampleName_tmp'], inplace=True, errors='ignore')
 
         # BioSampleName이 비어있는 행 제거
         combined_df = combined_df[combined_df['BioSampleName'].notna()]
