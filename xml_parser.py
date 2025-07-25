@@ -357,7 +357,11 @@ class DataProcessor:
             
             # 데이터 정리
             lab_run_log['BioSampleName'] = lab_run_log['BioSampleName'].str.strip().replace('', pd.NA).fillna(lab_run_log['Sample ID'])
-            lab_run_log.fillna(method='ffill', inplace=True)
+            
+            # 'ServiceId', 'ServiceName' column을 제외한 나머지 열에 대해 ffill 적용
+            #lab_run_log.fillna(method='ffill', inplace=True)
+            lab_run_log.loc[:, lab_run_log.columns.difference(['ServiceId', 'ServiceName'])] = lab_run_log.loc[:, lab_run_log.columns.difference(['ServiceId', 'ServiceName'])].ffill()
+
             
             # 문자열 변환 및 공백 제거
             for col in ['BioSampleName', 'Sample ID']:
